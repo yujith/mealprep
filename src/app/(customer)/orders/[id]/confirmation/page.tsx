@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { Card, CardContent } from "@/components/ui/card";
@@ -13,7 +13,7 @@ import { CheckCircle2 } from "lucide-react";
 
 export default function OrderConfirmationPage() {
   const { id } = useParams<{ id: string }>();
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
   const [order, setOrder] = useState<Order | null>(null);
   const [loading, setLoading] = useState(true);
 

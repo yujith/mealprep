@@ -1,12 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { useCartStore } from "@/lib/store/cart";
 import { createClient } from "@/lib/supabase/client";
 import { formatPrice } from "@/lib/format";
 import { toast } from "sonner";
-import { Loader2, Truck, CreditCard, ArrowRight, Lock } from "lucide-react";
+import { Loader2, Truck, CreditCard, ArrowRight, Lock, User } from "lucide-react";
 import Link from "next/link";
 import Image from "next/image";
 
@@ -18,12 +18,15 @@ const steps = [
 
 export default function CheckoutPage() {
   const router = useRouter();
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
   const { items, getSubtotal, clearCart } = useCartStore();
 
   const [loading, setLoading] = useState(false);
+  const [isLoggedIn, setIsLoggedIn] = useState<boolean | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<"cash" | "bank_transfer">("cash");
   const [form, setForm] = useState({
+    guest_name: "",
+    guest_phone: "",
     delivery_address: "",
     delivery_city: "",
     delivery_notes: "",
@@ -32,6 +35,13 @@ export default function CheckoutPage() {
   const subtotal = getSubtotal();
   const deliveryFee = 350;
   const total = subtotal + deliveryFee;
+
+  // Check auth state on mount
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setIsLoggedIn(!!session?.user);
+    });
+  }, [supabase]);
 
   const handleSubmit = async () => {
     if (!form.delivery_address.trim()) {
@@ -42,20 +52,46 @@ export default function CheckoutPage() {
       toast.error("Your cart is empty");
       return;
     }
+    // Guests must provide name + phone
+    if (!isLoggedIn) {
+      if (!form.guest_name.trim()) {
+        toast.error("Please enter your name");
+        return;
+      }
+      if (!form.guest_phone.trim()) {
+        toast.error("Please enter your phone number");
+        return;
+      }
+    }
 
     setLoading(true);
     try {
-      const { data: userData } = await supabase.auth.getUser();
-      if (!userData.user) {
-        toast.error("Please login to place an order");
-        router.push("/login");
-        return;
+      let userId: string;
+
+      if (isLoggedIn) {
+        const { data: userData } = await supabase.auth.getUser();
+        userId = userData.user!.id;
+      } else {
+        // Create anonymous session for guest
+        const { data: anonData, error: anonError } = await supabase.auth.signInAnonymously();
+        if (anonError || !anonData.user) {
+          toast.error("Unable to process order. Please try again.");
+          setLoading(false);
+          return;
+        }
+        userId = anonData.user.id;
+        // Store guest contact info in their auto-created profile
+        await supabase
+          .from("profiles")
+          .update({ full_name: form.guest_name, phone: form.guest_phone })
+          .eq("id", userId);
+        setIsLoggedIn(true);
       }
 
       const { data: order, error: orderError } = await supabase
         .from("orders")
         .insert({
-          user_id: userData.user.id,
+          user_id: userId,
           subtotal,
           delivery_fee: deliveryFee,
           total,
@@ -143,6 +179,45 @@ export default function CheckoutPage() {
       <div className="grid grid-cols-1 gap-12 lg:grid-cols-12">
         {/* Left: Forms */}
         <div className="space-y-8 lg:col-span-7">
+
+          {/* Guest Contact Details (only shown when not logged in) */}
+          {isLoggedIn === false && (
+            <section className="rounded-[2rem] bg-[#f5f3ef] p-8 md:p-10">
+              <div className="mb-8 flex items-center gap-3">
+                <User className="h-5 w-5 text-primary" />
+                <h2 className="text-2xl font-bold text-[#534434]">Your Contact Details</h2>
+              </div>
+              <p className="mb-6 text-sm text-[#534434]/60">
+                No account needed —{" "}
+                <Link href="/login" className="font-semibold text-primary hover:underline">
+                  log in
+                </Link>{" "}
+                to track orders, or just fill in your details below.
+              </p>
+              <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
+                <div className="flex flex-col gap-2">
+                  <label className="px-1 text-sm font-bold text-[#534434]">Full Name *</label>
+                  <input
+                    value={form.guest_name}
+                    onChange={(e) => setForm({ ...form, guest_name: e.target.value })}
+                    placeholder="Saumya Perera"
+                    className="rounded-[1rem] border-none bg-white px-5 py-4 text-[#1b1c1a] outline-none ring-1 ring-[#d8c3ad]/40 transition-all focus:ring-2 focus:ring-primary placeholder:text-[#867461]/50"
+                  />
+                </div>
+                <div className="flex flex-col gap-2">
+                  <label className="px-1 text-sm font-bold text-[#534434]">Phone Number *</label>
+                  <input
+                    value={form.guest_phone}
+                    onChange={(e) => setForm({ ...form, guest_phone: e.target.value })}
+                    placeholder="07X XXX XXXX"
+                    type="tel"
+                    className="rounded-[1rem] border-none bg-white px-5 py-4 text-[#1b1c1a] outline-none ring-1 ring-[#d8c3ad]/40 transition-all focus:ring-2 focus:ring-primary placeholder:text-[#867461]/50"
+                  />
+                </div>
+              </div>
+            </section>
+          )}
+
           {/* Delivery Details */}
           <section className="rounded-[2rem] bg-[#f5f3ef] p-8 md:p-10">
             <div className="mb-8 flex items-center gap-3">
@@ -150,30 +225,21 @@ export default function CheckoutPage() {
               <h2 className="text-2xl font-bold text-[#534434]">Where should we deliver?</h2>
             </div>
             <div className="space-y-5">
-              <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
-                <div className="flex flex-col gap-2">
-                  <label className="px-1 text-sm font-bold text-[#534434]">City</label>
-                  <select
-                    value={form.delivery_city}
-                    onChange={(e) => setForm({ ...form, delivery_city: e.target.value })}
-                    className="rounded-[1rem] border-none bg-white px-5 py-4 text-[#1b1c1a] outline-none ring-1 ring-[#d8c3ad]/40 transition-all focus:ring-2 focus:ring-primary"
-                  >
-                    <option value="">Select city...</option>
-                    <option>Colombo</option>
-                    <option>Kandy</option>
-                    <option>Galle</option>
-                    <option>Negombo</option>
-                    <option>Dehiwala</option>
-                    <option>Moratuwa</option>
-                  </select>
-                </div>
-                <div className="flex flex-col gap-2">
-                  <label className="px-1 text-sm font-bold text-[#534434]">Delivery Date</label>
-                  <input
-                    type="date"
-                    className="rounded-[1rem] border-none bg-white px-5 py-4 text-[#1b1c1a] outline-none ring-1 ring-[#d8c3ad]/40 transition-all focus:ring-2 focus:ring-primary"
-                  />
-                </div>
+              <div className="flex flex-col gap-2">
+                <label className="px-1 text-sm font-bold text-[#534434]">City</label>
+                <select
+                  value={form.delivery_city}
+                  onChange={(e) => setForm({ ...form, delivery_city: e.target.value })}
+                  className="rounded-[1rem] border-none bg-white px-5 py-4 text-[#1b1c1a] outline-none ring-1 ring-[#d8c3ad]/40 transition-all focus:ring-2 focus:ring-primary"
+                >
+                  <option value="">Select city...</option>
+                  <option>Colombo</option>
+                  <option>Kandy</option>
+                  <option>Galle</option>
+                  <option>Negombo</option>
+                  <option>Dehiwala</option>
+                  <option>Moratuwa</option>
+                </select>
               </div>
               <div className="flex flex-col gap-2">
                 <label className="px-1 text-sm font-bold text-[#534434]">Delivery Address *</label>
@@ -315,7 +381,7 @@ export default function CheckoutPage() {
 
               <button
                 onClick={handleSubmit}
-                disabled={loading}
+                disabled={loading || isLoggedIn === null}
                 className="mt-4 flex w-full items-center justify-center gap-3 rounded-full bg-gradient-to-r from-primary to-[#f59e0b] py-5 text-lg font-bold text-white shadow-lg transition-transform duration-300 hover:scale-[1.02] disabled:opacity-60"
               >
                 {loading ? (

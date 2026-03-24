@@ -41,10 +41,11 @@ export default function AdminOrderDetailPage() {
 
   useEffect(() => {
     async function fetchOrder() {
+      // Fetch order (with embedded profile join) and order_items in parallel
       const [orderRes, itemsRes] = await Promise.all([
         supabase
           .from("orders")
-          .select("*")
+          .select("*, profiles(full_name, phone, address)")
           .eq("id", id)
           .single(),
         supabase.from("order_items").select("*").eq("order_id", id),
@@ -56,18 +57,15 @@ export default function AdminOrderDetailPage() {
         return;
       }
 
-      // Fetch profile separately since there's no FK relationship
-      let profileData = null;
-      if (orderRes.data?.user_id) {
-        const { data: profile } = await supabase
-          .from("profiles")
-          .select("full_name, phone, address")
-          .eq("id", orderRes.data.user_id)
-          .single();
-        profileData = profile;
-      }
+      const rawOrder = orderRes.data as typeof orderRes.data & {
+        profiles: { full_name: string; phone: string; address: string } | null;
+      };
 
-      const data = { ...orderRes.data, profiles: profileData } as typeof order;
+      const data = {
+        ...rawOrder,
+        profiles: rawOrder?.profiles ?? null,
+      } as typeof order;
+
       if (data) {
         setOrder(data);
         setStatus(data.status);
