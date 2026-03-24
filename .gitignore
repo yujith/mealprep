@@ -34,3 +34,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# design docs
+stitch_mealprep_system_prd/
+stitch_mealprep_system_prd.zip
