@@ -38,7 +38,7 @@ export async function middleware(request: NextRequest) {
 
     const user = session?.user ?? null;
 
-    const protectedPaths = ["/cart", "/orders", "/profile"];
+    const protectedPaths = ["/orders", "/profile"];
     const adminPaths = ["/admin"];
     const authPaths = ["/login", "/register"];
     const { pathname } = request.nextUrl;
