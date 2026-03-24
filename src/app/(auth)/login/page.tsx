@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "sonner";
@@ -9,6 +9,7 @@ import { Loader2 } from "lucide-react";
 
 export default function LoginPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const supabase = createClient();
   const [loading, setLoading] = useState(false);
   const [form, setForm] = useState({ email: "", password: "" });
@@ -24,7 +25,8 @@ export default function LoginPage() {
       toast.error(error.message);
     } else {
       toast.success("Welcome back!");
-      router.push("/menu");
+      const redirectTo = searchParams.get("redirectTo") || "/menu";
+      router.push(redirectTo);
       router.refresh();
     }
     setLoading(false);
